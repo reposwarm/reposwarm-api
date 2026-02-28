@@ -1,11 +1,11 @@
-FROM node:24-alpine AS builder
+FROM public.ecr.aws/docker/library/node:24-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:24-alpine
+FROM public.ecr.aws/docker/library/node:24-alpine
 RUN addgroup -g 1001 -S app && adduser -S app -u 1001
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
