@@ -20,17 +20,30 @@ export function createApp() {
   app.use(express.json())
   app.use(httpLogger)
 
-  // Unauthenticated routes
+  // Health at root (no auth, no prefix) — for ALB health checks
   app.use(healthRouter)
 
-  // Authenticated routes
-  app.use(authMiddleware)
-  app.use(reposRouter)
-  app.use(workflowsRouter)
-  app.use(investigateRouter)
-  app.use(wikiRouter)
-  app.use(promptsRouter)
-  app.use(configRouter)
+  // All API routes under /v1 with auth
+  const v1 = express.Router()
+  v1.use(authMiddleware)
+  v1.use(reposRouter)
+  v1.use(workflowsRouter)
+  v1.use(investigateRouter)
+  v1.use(wikiRouter)
+  v1.use(promptsRouter)
+  v1.use(configRouter)
+  app.use('/v1', v1)
+
+  // Also mount at root for backward compat
+  const root = express.Router()
+  root.use(authMiddleware)
+  root.use(reposRouter)
+  root.use(workflowsRouter)
+  root.use(investigateRouter)
+  root.use(wikiRouter)
+  root.use(promptsRouter)
+  root.use(configRouter)
+  app.use(root)
 
   app.use(errorHandler)
 
