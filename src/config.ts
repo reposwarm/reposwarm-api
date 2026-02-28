@@ -8,6 +8,7 @@ export const config = {
   temporalTaskQueue: process.env.TEMPORAL_TASK_QUEUE || 'investigate-task-queue',
   cognitoUserPoolId: process.env.COGNITO_USER_POOL_ID || 'us-east-1_XgaUUc0TG',
   cognitoRegion: process.env.COGNITO_REGION || 'us-east-1',
+  cognitoClientId: process.env.COGNITO_CLIENT_ID || '',
   apiBearerToken: process.env.API_BEARER_TOKEN || '',
   logLevel: process.env.LOG_LEVEL || 'info',
   version: process.env.npm_package_version || '1.0.0'

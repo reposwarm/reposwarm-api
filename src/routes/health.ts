@@ -14,8 +14,17 @@ router.get('/health', async (_req, res) => {
     data: {
       status: dynHealth && tempHealth ? 'healthy' : 'degraded',
       version: config.version,
-      temporal: { connected: tempHealth },
-      dynamodb: { connected: dynHealth }
+      api: dynHealth && tempHealth ? 'healthy' : 'degraded',
+      temporal: {
+        connected: tempHealth,
+        namespace: config.temporalNamespace,
+        taskQueue: config.temporalTaskQueue
+      },
+      dynamodb: { connected: dynHealth },
+      worker: {
+        connected: tempHealth,
+        count: tempHealth ? 1 : 0
+      }
     }
   })
 })

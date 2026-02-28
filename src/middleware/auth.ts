@@ -10,7 +10,7 @@ function getVerifier() {
     cognitoVerifier = CognitoJwtVerifier.create({
       userPoolId: config.cognitoUserPoolId,
       tokenUse: 'id',
-      clientId: null as any
+      clientId: config.cognitoClientId || null as any
     })
   }
   return cognitoVerifier
@@ -59,8 +59,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       type: 'cognito'
     }
     return next()
-  } catch {
-    // Not a valid Cognito JWT
+  } catch (err) {
+    logger.debug({ err: String(err) }, 'Cognito JWT verification failed')
   }
 
   // Try static bearer token
