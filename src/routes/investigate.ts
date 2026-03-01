@@ -24,10 +24,38 @@ router.post('/investigate/single', async (req, res) => {
   res.status(202).json({ data: { workflowId, status: 'started' } })
 })
 
-router.post('/investigate/daily', async (_req, res) => {
+router.post('/investigate/daily', async (req, res) => {
+  const {
+    sleep_hours = 24,
+    chunk_size = 10,
+    model,
+    max_tokens,
+    force = false,
+  } = req.body || {}
+
   const workflowId = `investigate-daily-${Date.now()}`
-  await temporal.startWorkflow('InvestigateDailyWorkflow', workflowId, [])
-  res.status(202).json({ data: { workflowId, status: 'started' } })
+
+  // InvestigateReposRequest Pydantic model fields:
+  //   force, claude_model, max_tokens, sleep_hours, chunk_size, iteration_count
+  const workflowInput: Record<string, unknown> = {
+    force: Boolean(force),
+    sleep_hours: Number(sleep_hours),
+    chunk_size: Number(chunk_size),
+    iteration_count: 0,
+  }
+  if (model) workflowInput.claude_model = model
+  if (max_tokens) workflowInput.max_tokens = Number(max_tokens)
+
+  await temporal.startWorkflow('InvestigateReposWorkflow', workflowId, [workflowInput])
+  res.status(202).json({
+    data: {
+      workflowId,
+      status: 'started',
+      sleepHours: sleep_hours,
+      chunkSize: chunk_size,
+      force,
+    }
+  })
 })
 
 export default router
