@@ -2,6 +2,7 @@ export const config = {
   port: parseInt(process.env.PORT || '3000'),
   region: process.env.AWS_REGION || 'us-east-1',
   dynamoTable: process.env.DYNAMODB_TABLE || 'reposwarm-cache',
+  dynamoEndpoint: process.env.DYNAMODB_ENDPOINT || '',
   temporalServerUrl: process.env.TEMPORAL_SERVER_URL || 'localhost:7233',
   temporalHttpUrl: process.env.TEMPORAL_HTTP_URL || 'http://localhost:8233',
   temporalNamespace: process.env.TEMPORAL_NAMESPACE || 'default',

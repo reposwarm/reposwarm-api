@@ -1,10 +1,14 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { DynamoDBClient, CreateTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand, DeleteCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { config } from '../config.js'
 import { Repository, Prompt, PromptVersion, WikiRepoSummary, WikiSection, RepoSwarmConfig } from '../types/index.js'
 import { logger } from '../middleware/logger.js'
 
-const client = new DynamoDBClient({ region: config.region })
+const clientConfig: any = { region: config.region }
+if (config.dynamoEndpoint) {
+  clientConfig.endpoint = config.dynamoEndpoint
+}
+const client = new DynamoDBClient(clientConfig)
 const docClient = DynamoDBDocumentClient.from(client)
 const TABLE = config.dynamoTable
 
@@ -347,6 +351,34 @@ export async function putConfig(cfg: Partial<RepoSwarmConfig>): Promise<void> {
     TableName: TABLE,
     Item: { repository_name: '_config', analysis_timestamp: 0, ...current, ...cfg }
   }))
+}
+
+// === Table Bootstrap (for DynamoDB Local) ===
+export async function ensureTable(): Promise<void> {
+  if (!config.dynamoEndpoint) return // Only for local DynamoDB
+  try {
+    await client.send(new DescribeTableCommand({ TableName: TABLE }))
+    logger.info({ table: TABLE }, 'DynamoDB Local table exists')
+  } catch (e: any) {
+    if (e.name === 'ResourceNotFoundException') {
+      logger.info({ table: TABLE }, 'Creating DynamoDB Local table...')
+      await client.send(new CreateTableCommand({
+        TableName: TABLE,
+        KeySchema: [
+          { AttributeName: 'repository_name', KeyType: 'HASH' },
+          { AttributeName: 'analysis_timestamp', KeyType: 'RANGE' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'repository_name', AttributeType: 'S' },
+          { AttributeName: 'analysis_timestamp', AttributeType: 'N' },
+        ],
+        BillingMode: 'PAY_PER_REQUEST',
+      }))
+      logger.info({ table: TABLE }, 'DynamoDB Local table created')
+    } else {
+      throw e
+    }
+  }
 }
 
 // === Health ===
