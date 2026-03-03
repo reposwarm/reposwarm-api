@@ -44,6 +44,19 @@ npm start       # Production
 | GET | `/prompts/:name/versions` | Yes | Version history |
 | POST | `/prompts/:name/rollback` | Yes | Rollback version |
 | GET/PUT | `/config` | Yes | Configuration |
+| GET | `/providers` | Yes | Providers bundle (single source of truth) |
+| GET | `/providers/validation` | Yes | Env var validation rules for current config |
+| GET | `/workers` | Yes | List connected workers |
+| GET | `/workers/:id` | Yes | Worker detail |
+| GET | `/workers/:id/env` | Yes | Worker environment variables |
+| POST | `/workers/:id/env/:key` | Yes | Set worker env var |
+| DELETE | `/workers/:id/env/:key` | Yes | Delete worker env var |
+| POST | `/workers/:id/inference-check` | Yes | Test LLM inference |
+| GET | `/services` | Yes | List service statuses |
+| GET | `/services/:name/logs` | Yes | Tail service logs |
+| POST | `/services/:name/restart` | Yes | Restart a service |
+| POST | `/services/:name/stop` | Yes | Stop a service |
+| POST | `/services/:name/upgrade` | Yes | Upgrade service (git pull + build + restart) |
 
 ## Auth
 
