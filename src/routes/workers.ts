@@ -5,13 +5,86 @@ import { WorkerInfo, EnvEntry } from '../types/index.js'
 import { execSync, spawn } from 'child_process'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import os from 'os'
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime'
 
 const router = Router()
 const INSTALL_DIR = process.env.REPOSWARM_INSTALL_DIR || join(os.homedir(), 'reposwarm')
 
-// Dynamic required env vars based on provider
+// ─── Providers Bundle ───────────────────────────────────────────
+
+interface EnvVarDef {
+  key: string
+  desc: string
+  required: boolean
+  value?: string
+  alts?: string[]
+  secret?: boolean
+}
+
+interface AuthMethodDef {
+  label: string
+  envVars: EnvVarDef[]
+}
+
+interface ProviderBundle {
+  label: string
+  envVars: {
+    always: EnvVarDef[]
+    authMethods?: Record<string, AuthMethodDef>
+    defaultAuthMethod?: string
+  }
+  models: Record<string, string>
+  defaultModel: string
+  defaultSmallModel: string
+  pinVars?: Record<string, string>
+}
+
+interface ProvidersFile {
+  providers: Record<string, ProviderBundle>
+  commonEnvVars: EnvVarDef[]
+  knownEnvVars: string[]
+}
+
+function loadProvidersBundle(): ProvidersFile {
+  // Try external file first (~/.reposwarm/providers.json)
+  const extPath = join(os.homedir(), '.reposwarm', 'providers.json')
+  if (existsSync(extPath)) {
+    try {
+      return JSON.parse(readFileSync(extPath, 'utf-8'))
+    } catch { /* fall through */ }
+  }
+
+  // Fall back to bundled
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const bundledPath = join(__dirname, '..', 'providers.json')
+  if (existsSync(bundledPath)) {
+    return JSON.parse(readFileSync(bundledPath, 'utf-8'))
+  }
+
+  // Hardcoded minimal fallback
+  return {
+    providers: {},
+    commonEnvVars: [],
+    knownEnvVars: ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'ANTHROPIC_MODEL', 'CLAUDE_CODE_USE_BEDROCK', 'AWS_REGION']
+  }
+}
+
+let _providersBundle: ProvidersFile | null = null
+function getProvidersBundle(): ProvidersFile {
+  if (!_providersBundle) {
+    _providersBundle = loadProvidersBundle()
+  }
+  return _providersBundle
+}
+
+// Eagerly load bundle at module init (before any mocks in tests)
+try {
+  _providersBundle = loadProvidersBundle()
+} catch { /* fallback is handled in loadProvidersBundle */ }
+
+// Dynamic required env vars based on provider — driven by providers.json
 interface RequiredEnvVar {
   key: string
   desc: string
@@ -19,49 +92,58 @@ interface RequiredEnvVar {
 }
 
 function getRequiredEnvVars(envVars: Record<string, string>): RequiredEnvVar[] {
+  const bundle = getProvidersBundle()
   const isBedrock = envVars['CLAUDE_CODE_USE_BEDROCK'] === '1'
   const isLiteLLM = !!envVars['ANTHROPIC_BASE_URL'] && !isBedrock
+  const providerKey = isBedrock ? 'bedrock' : (isLiteLLM ? 'litellm' : 'anthropic')
 
-  const common: RequiredEnvVar[] = [
-    { key: 'ANTHROPIC_MODEL', desc: 'Model ID for LLM calls', alts: ['CLAUDE_MODEL', 'MODEL_ID'] },
-    // Note: GITHUB_TOKEN is recommended but not strictly required for basic operation
-  ]
+  const reqs: RequiredEnvVar[] = []
 
-  if (isBedrock) {
-    return [
-      ...common,
-      { key: 'CLAUDE_CODE_USE_BEDROCK', desc: 'Bedrock mode flag (must be 1)', alts: [] },
-      { key: 'AWS_REGION', desc: 'AWS region for Bedrock', alts: ['AWS_DEFAULT_REGION'] },
-      // AWS_ACCESS_KEY_ID only required if not using IAM role or profile
-      // We detect this: if neither KEY nor PROFILE is set, assume IAM role (which is fine)
-    ]
+  // Common env vars
+  for (const ev of bundle.commonEnvVars) {
+    if (ev.required) {
+      reqs.push({ key: ev.key, desc: ev.desc, alts: ev.alts || [] })
+    }
   }
 
-  if (isLiteLLM) {
-    return [
-      ...common,
-      { key: 'ANTHROPIC_BASE_URL', desc: 'LiteLLM proxy URL', alts: [] },
-      // ANTHROPIC_API_KEY is optional for LiteLLM (proxy may not require auth)
-    ]
+  // Provider-specific
+  const provider = bundle.providers[providerKey]
+  if (provider) {
+    for (const ev of provider.envVars.always) {
+      if (ev.required) {
+        reqs.push({ key: ev.key, desc: ev.desc, alts: ev.alts || [] })
+      }
+    }
+
+    // Auth-method specific (Bedrock)
+    if (provider.envVars.authMethods) {
+      // Detect auth method from env
+      let authKey = provider.envVars.defaultAuthMethod || 'iam-role'
+      if (envVars['AWS_ACCESS_KEY_ID'] || process.env['AWS_ACCESS_KEY_ID']) {
+        authKey = 'long-term-keys'
+      } else if (envVars['AWS_BEARER_TOKEN_BEDROCK'] || process.env['AWS_BEARER_TOKEN_BEDROCK']) {
+        authKey = 'api-key'
+      } else if (envVars['AWS_PROFILE'] || process.env['AWS_PROFILE']) {
+        authKey = 'profile'
+      }
+      const authMethod = provider.envVars.authMethods[authKey]
+      if (authMethod) {
+        for (const ev of authMethod.envVars) {
+          if (ev.required) {
+            reqs.push({ key: ev.key, desc: ev.desc, alts: ev.alts || [] })
+          }
+        }
+      }
+    }
   }
 
-  // Default: Anthropic direct
-  return [
-    ...common,
-    { key: 'ANTHROPIC_API_KEY', desc: 'Anthropic API key', alts: [] },
-  ]
+  return reqs
 }
 
-const KNOWN_ENV_VARS = [
-  'ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GITHUB_PAT',
-  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION',
-  'AWS_BEARER_TOKEN_BEDROCK', 'AWS_PROFILE',
-  'CLAUDE_MODEL', 'MODEL_ID', 'MODEL', 'ANTHROPIC_MODEL',
-  'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-  'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_USE_BEDROCK',
-  'TEMPORAL_SERVER_URL', 'DYNAMODB_TABLE_NAME',
-  'API_BEARER_TOKEN',
-]
+function getKnownEnvVars(): string[] {
+  const bundle = getProvidersBundle()
+  return bundle.knownEnvVars
+}
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -206,6 +288,12 @@ function gatherWorkers(): WorkerInfo[] {
 
 // ─── Routes ─────────────────────────────────────────────────────
 
+// GET /providers — serve the providers bundle (single source of truth)
+router.get('/providers', async (_req: Request, res: Response) => {
+  const bundle = getProvidersBundle()
+  res.json({ data: bundle })
+})
+
 // GET /workers
 router.get('/workers', async (_req: Request, res: Response) => {
   const workers = gatherWorkers()
@@ -252,7 +340,7 @@ router.get('/workers/:id/env', async (req: Request, res: Response) => {
     entries.push({ key, value, source, set })
   }
 
-  for (const k of KNOWN_ENV_VARS) addEntry(k)
+  for (const k of getKnownEnvVars()) addEntry(k)
   for (const k of Object.keys(fileVars)) addEntry(k)
 
   res.json({ data: { envFile: envPath, entries } })

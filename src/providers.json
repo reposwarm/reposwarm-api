@@ -1,0 +1,114 @@
+{
+  "providers": {
+    "anthropic": {
+      "label": "Anthropic (Direct API)",
+      "envVars": {
+        "always": [
+          { "key": "ANTHROPIC_API_KEY", "desc": "Anthropic API key", "required": true },
+          { "key": "ANTHROPIC_MODEL", "desc": "Model ID for LLM calls", "required": true },
+          { "key": "ANTHROPIC_SMALL_FAST_MODEL", "desc": "Small/fast model for triage", "required": false }
+        ]
+      },
+      "models": {
+        "sonnet": "claude-sonnet-4-6",
+        "opus": "claude-opus-4-6",
+        "haiku": "claude-haiku-4-5",
+        "sonnet-3.5": "claude-3-5-sonnet-20241022"
+      },
+      "defaultModel": "sonnet",
+      "defaultSmallModel": "claude-haiku-4-5",
+      "pinVars": {
+        "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL"
+      }
+    },
+    "bedrock": {
+      "label": "Amazon Bedrock",
+      "envVars": {
+        "always": [
+          { "key": "CLAUDE_CODE_USE_BEDROCK", "desc": "Enable Bedrock mode", "required": true, "value": "1" },
+          { "key": "AWS_REGION", "desc": "AWS region for Bedrock", "required": true, "alts": ["AWS_DEFAULT_REGION"] },
+          { "key": "ANTHROPIC_MODEL", "desc": "Bedrock model ID", "required": true },
+          { "key": "ANTHROPIC_SMALL_FAST_MODEL", "desc": "Small/fast model for triage", "required": false }
+        ],
+        "authMethods": {
+          "iam-role": {
+            "label": "EC2 instance profile or ECS task role (recommended)",
+            "envVars": []
+          },
+          "long-term-keys": {
+            "label": "AWS access key + secret",
+            "envVars": [
+              { "key": "AWS_ACCESS_KEY_ID", "desc": "AWS access key ID", "required": true, "secret": true },
+              { "key": "AWS_SECRET_ACCESS_KEY", "desc": "AWS secret access key", "required": true, "secret": true }
+            ]
+          },
+          "profile": {
+            "label": "Named AWS profile (~/.aws/credentials or SSO)",
+            "envVars": [
+              { "key": "AWS_PROFILE", "desc": "AWS profile name", "required": true }
+            ]
+          },
+          "sso": {
+            "label": "AWS SSO / Identity Center",
+            "envVars": [
+              { "key": "AWS_PROFILE", "desc": "AWS SSO profile name", "required": true }
+            ]
+          },
+          "api-key": {
+            "label": "Bedrock API key (AWS_BEARER_TOKEN_BEDROCK)",
+            "envVars": [
+              { "key": "AWS_BEARER_TOKEN_BEDROCK", "desc": "Bedrock API key", "required": true, "secret": true }
+            ]
+          }
+        },
+        "defaultAuthMethod": "iam-role"
+      },
+      "models": {
+        "sonnet": "us.anthropic.claude-sonnet-4-6",
+        "opus": "us.anthropic.claude-opus-4-6-v1",
+        "haiku": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "sonnet-3.5": "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+      },
+      "defaultModel": "sonnet",
+      "defaultSmallModel": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "pinVars": {
+        "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL"
+      }
+    },
+    "litellm": {
+      "label": "LiteLLM Proxy",
+      "envVars": {
+        "always": [
+          { "key": "ANTHROPIC_BASE_URL", "desc": "LiteLLM proxy URL", "required": true },
+          { "key": "ANTHROPIC_MODEL", "desc": "Model ID", "required": true },
+          { "key": "ANTHROPIC_API_KEY", "desc": "LiteLLM proxy API key (if proxy requires auth)", "required": false }
+        ]
+      },
+      "models": {
+        "sonnet": "claude-sonnet-4-6",
+        "opus": "claude-opus-4-6",
+        "haiku": "claude-haiku-4-5"
+      },
+      "defaultModel": "sonnet",
+      "defaultSmallModel": "claude-haiku-4-5"
+    }
+  },
+  "commonEnvVars": [
+    { "key": "GITHUB_TOKEN", "desc": "GitHub access token for repo cloning", "required": false, "alts": ["GITHUB_PAT"] }
+  ],
+  "knownEnvVars": [
+    "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "GITHUB_PAT",
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION",
+    "AWS_REGION", "AWS_PROFILE", "AWS_BEARER_TOKEN_BEDROCK",
+    "CLAUDE_MODEL", "MODEL_ID", "MODEL", "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "TEMPORAL_SERVER_URL", "DYNAMODB_TABLE_NAME",
+    "API_BEARER_TOKEN"
+  ]
+}
