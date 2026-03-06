@@ -10,8 +10,13 @@ router.post('/investigate/single', async (req, res) => {
 
   let url = repo_url
   if (!url) {
-    const repo = await dynamodb.getRepo(repo_name)
-    if (repo) url = repo.url
+    // If repo_name looks like a URL, use it directly
+    if (repo_name.startsWith('http://') || repo_name.startsWith('https://') || repo_name.startsWith('git@')) {
+      url = repo_name
+    } else {
+      const repo = await dynamodb.getRepo(repo_name)
+      if (repo) url = repo.url
+    }
   }
 
   const workflowId = `investigate-single-${repo_name}-${Date.now()}`
