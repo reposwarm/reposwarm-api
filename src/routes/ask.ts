@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
-import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime'
 import { logger } from '../middleware/logger.js'
+import { infer, readWorkerEnv, detectModel } from '../utils/inference.js'
 import { readFileSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -132,29 +132,6 @@ ${gitProviderList}
 Be concise. Give command examples. If you don't know something specific, say so.`
 }
 
-// Read worker env vars (reused from workers.ts pattern)
-function getWorkerEnvVars(): Record<string, string> {
-  const installDir = process.env['REPOSWARM_INSTALL_DIR'] || `${process.env['HOME']}/reposwarm`
-  const envPath = join(installDir, 'worker', '.env')
-  if (!existsSync(envPath)) return {}
-  const content = readFileSync(envPath, 'utf-8')
-  const vars: Record<string, string> = {}
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq > 0) {
-      const key = trimmed.substring(0, eq)
-      let val = trimmed.substring(eq + 1)
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1)
-      }
-      vars[key] = val
-    }
-  }
-  return vars
-}
-
 // POST /ask
 router.post('/ask', async (req: Request, res: Response) => {
   const { question } = req.body
@@ -162,159 +139,18 @@ router.post('/ask', async (req: Request, res: Response) => {
     return res.status(400).json({ data: { success: false, error: 'question is required' } })
   }
 
-  const startTime = Date.now()
-  const envVars = getWorkerEnvVars()
+  const result = await infer({
+    system: buildSystemPrompt(),
+    prompt: question,
+    maxTokens: 1024,
+  })
 
-  // Detect provider
-  const isBedrock = envVars['CLAUDE_CODE_USE_BEDROCK'] === '1' || process.env['CLAUDE_CODE_USE_BEDROCK'] === '1'
-  const isLiteLLM = !!(envVars['ANTHROPIC_BASE_URL'] || process.env['ANTHROPIC_BASE_URL']) && !isBedrock
+  logger.info(
+    { question: question.substring(0, 100), model: result.model, latencyMs: result.latencyMs },
+    result.success ? 'Ask completed' : 'Ask failed'
+  )
 
-  // Get model — prefer small/fast model for ask
-  const model = envVars['ANTHROPIC_SMALL_FAST_MODEL'] || envVars['ANTHROPIC_MODEL'] || 
-                envVars['CLAUDE_MODEL'] || envVars['MODEL_ID'] ||
-                process.env['ANTHROPIC_SMALL_FAST_MODEL'] || process.env['ANTHROPIC_MODEL'] || ''
-  
-  if (!model) {
-    return res.json({
-      data: {
-        success: false,
-        error: 'No model configured',
-        hint: 'Run: reposwarm config provider setup'
-      }
-    })
-  }
-
-  const systemPrompt = buildSystemPrompt()
-  const maxTokens = 1024
-
-  try {
-    let responseText = ''
-
-    if (isBedrock) {
-      const region = envVars['AWS_REGION'] || envVars['AWS_DEFAULT_REGION'] || 
-                     process.env['AWS_REGION'] || process.env['AWS_DEFAULT_REGION'] || 'us-east-1'
-      
-      const bearerToken = envVars['AWS_BEARER_TOKEN_BEDROCK'] || process.env['AWS_BEARER_TOKEN_BEDROCK']
-      
-      if (bearerToken) {
-        // Bearer token auth — raw HTTP (AWS SDK doesn't support bearer tokens)
-        const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(model)}/invoke`
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${bearerToken}`,
-          },
-          body: JSON.stringify({
-            anthropic_version: 'bedrock-2023-05-31',
-            max_tokens: maxTokens,
-            system: systemPrompt,
-            messages: [{ role: 'user', content: question }],
-          }),
-        })
-
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({} as any))
-          throw new Error((err as any).message || `HTTP ${response.status}`)
-        }
-
-        const data = await response.json() as any
-        responseText = data.content?.[0]?.text || ''
-      } else {
-        // SigV4 auth — AWS SDK (access-keys, profile, iam-role)
-        const client = new BedrockRuntimeClient({ region })
-        const command = new ConverseCommand({
-          modelId: model,
-          system: [{ text: systemPrompt }],
-          messages: [{ role: 'user', content: [{ text: question }] }],
-          inferenceConfig: { maxTokens }
-        })
-
-        const response = await client.send(command)
-        const content = response.output?.message?.content?.[0]
-        responseText = (content && 'text' in content) ? content.text || '' : ''
-      }
-
-    } else if (isLiteLLM) {
-      const proxyUrl = envVars['ANTHROPIC_BASE_URL'] || process.env['ANTHROPIC_BASE_URL']
-      const apiKey = envVars['ANTHROPIC_API_KEY'] || process.env['ANTHROPIC_API_KEY']
-
-      const response = await fetch(`${proxyUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          ...(apiKey ? { 'x-api-key': apiKey } : {})
-        },
-        body: JSON.stringify({
-          model,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: question }],
-          max_tokens: maxTokens
-        })
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({} as any))
-        throw new Error((err as any).error?.message || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json() as any
-      responseText = data.content?.[0]?.text || ''
-
-    } else {
-      const apiKey = envVars['ANTHROPIC_API_KEY'] || process.env['ANTHROPIC_API_KEY']
-      if (!apiKey) {
-        return res.json({
-          data: { success: false, error: 'No API key', hint: 'Set ANTHROPIC_API_KEY' }
-        })
-      }
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: question }],
-          max_tokens: maxTokens
-        })
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({} as any))
-        throw new Error((err as any).error?.message || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json() as any
-      responseText = data.content?.[0]?.text || ''
-    }
-
-    logger.info({ question: question.substring(0, 100), model, latencyMs: Date.now() - startTime }, 'Ask completed')
-
-    return res.json({
-      data: {
-        success: true,
-        answer: responseText,
-        model,
-        latencyMs: Date.now() - startTime
-      }
-    })
-
-  } catch (error: any) {
-    logger.error({ error: error.message, question: question.substring(0, 100) }, 'Ask failed')
-    return res.json({
-      data: {
-        success: false,
-        error: error.message || 'Inference failed',
-        hint: 'Check provider config: reposwarm config provider show'
-      }
-    })
-  }
+  return res.json({ data: result })
 })
 
 export default router
