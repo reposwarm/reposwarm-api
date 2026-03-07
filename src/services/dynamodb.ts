@@ -7,11 +7,10 @@ import { logger } from '../middleware/logger.js'
 const clientConfig: any = { region: config.region }
 if (config.dynamoEndpoint) {
   clientConfig.endpoint = config.dynamoEndpoint
-  // DynamoDB Local hangs when it receives a valid-looking SigV4 Authorization
-  // header (it tries to verify credentials and blocks indefinitely).
-  // Use dummy credentials AND a no-op signer to skip signing entirely.
+  // DynamoDB Local needs credentials for SigV4 signing.
+  // NOTE: DynamoDB Local >= 3.3.0 hangs on valid SigV4 headers in Docker —
+  // pin to version 2.5.3 in docker-compose.yml to avoid this.
   clientConfig.credentials = { accessKeyId: 'local', secretAccessKey: 'local' }
-  clientConfig.signer = { sign: async (req: any) => req }
 }
 const client = new DynamoDBClient(clientConfig)
 const docClient = DynamoDBDocumentClient.from(client)
