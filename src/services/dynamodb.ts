@@ -7,10 +7,11 @@ import { logger } from '../middleware/logger.js'
 const clientConfig: any = { region: config.region }
 if (config.dynamoEndpoint) {
   clientConfig.endpoint = config.dynamoEndpoint
-  // DynamoDB Local doesn't need real AWS credentials, but the SDK will hang
-  // trying to resolve credentials from IMDS/env if none are provided.
-  // Use dummy credentials for local development.
+  // DynamoDB Local hangs when it receives a valid-looking SigV4 Authorization
+  // header (it tries to verify credentials and blocks indefinitely).
+  // Use dummy credentials AND a no-op signer to skip signing entirely.
   clientConfig.credentials = { accessKeyId: 'local', secretAccessKey: 'local' }
+  clientConfig.signer = { sign: async (req: any) => req }
 }
 const client = new DynamoDBClient(clientConfig)
 const docClient = DynamoDBDocumentClient.from(client)
