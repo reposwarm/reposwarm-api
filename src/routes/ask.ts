@@ -153,4 +153,86 @@ router.post('/ask', async (req: Request, res: Response) => {
   return res.json({ data: result })
 })
 
+// ---------------------------------------------------------------------------
+// Architecture Ask — proxy to askbox HTTP server
+// ---------------------------------------------------------------------------
+const ASKBOX_URL = process.env['ASKBOX_URL'] || 'http://localhost:8082'
+
+// POST /ask/arch — submit architecture question
+router.post('/ask/arch', async (req: Request, res: Response) => {
+  const { question, repos, adapter } = req.body
+  if (!question || typeof question !== 'string') {
+    return res.status(400).json({ data: { success: false, error: 'question is required' } })
+  }
+
+  try {
+    const body: Record<string, any> = { question }
+    if (repos) body.repos = typeof repos === 'string' ? repos.split(',') : repos
+    if (adapter) body.adapter = adapter
+
+    const response = await fetch(`${ASKBOX_URL}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` })) as any
+      return res.json({ data: { success: false, error: err.detail || `askbox returned ${response.status}` } })
+    }
+
+    const data = await response.json() as any
+    logger.info({ askId: data.id, question: question.substring(0, 100) }, 'Arch ask submitted')
+    return res.json({ data: { success: true, askId: data.id, status: data.status } })
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Arch ask proxy failed')
+    return res.json({ data: { success: false, error: `Cannot reach askbox: ${error.message}` } })
+  }
+})
+
+// GET /ask/arch/:id — poll architecture question status
+router.get('/ask/arch/:id', async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    const response = await fetch(`${ASKBOX_URL}/ask/${id}`)
+    if (!response.ok) {
+      if (response.status === 404) {
+        return res.status(404).json({ data: { success: false, error: `Job ${id} not found` } })
+      }
+      return res.json({ data: { success: false, error: `askbox returned ${response.status}` } })
+    }
+
+    const job = await response.json() as any
+    return res.json({
+      data: {
+        success: true,
+        askId: job.id,
+        status: job.status,
+        detail: job.status === 'running' ? `Tool calls: ${job.tool_calls}` : undefined,
+        answer: job.answer || undefined,
+        error: job.error || undefined,
+        chars: job.answer ? job.answer.length : 0,
+      }
+    })
+  } catch (error: any) {
+    logger.error({ error: error.message, askId: id }, 'Arch ask poll failed')
+    return res.json({ data: { success: false, error: `Cannot reach askbox: ${error.message}` } })
+  }
+})
+
+// GET /ask/arch — list architecture questions
+router.get('/ask/arch', async (_req: Request, res: Response) => {
+  try {
+    const response = await fetch(`${ASKBOX_URL}/ask`)
+    if (!response.ok) {
+      return res.json({ data: { success: false, error: `askbox returned ${response.status}` } })
+    }
+    const jobs = await response.json()
+    return res.json({ data: { success: true, jobs } })
+  } catch (error: any) {
+    return res.json({ data: { success: false, error: `Cannot reach askbox: ${error.message}` } })
+  }
+})
+
 export default router
