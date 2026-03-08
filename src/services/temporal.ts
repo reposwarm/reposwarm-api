@@ -159,6 +159,14 @@ export async function terminateWorkflow(workflowId: string, reason?: string): Pr
   await handle.terminate(reason || 'Terminated via API')
 }
 
+export async function deleteWorkflow(workflowId: string): Promise<void> {
+  const client = await getGrpcClient()
+  await client.workflowService.deleteWorkflowExecution({
+    namespace: config.temporalNamespace,
+    workflowExecution: { workflowId },
+  })
+}
+
 export async function healthCheck(): Promise<boolean> {
   try {
     await temporalGet('/workflows?maximumPageSize=1')
