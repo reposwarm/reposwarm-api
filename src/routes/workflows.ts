@@ -36,4 +36,9 @@ router.post('/workflows/:id/terminate', async (req, res) => {
   res.json({ data: { terminated: true } })
 })
 
+router.delete('/workflows/:id', async (req, res) => {
+  await temporal.deleteWorkflow(req.params.id)
+  res.json({ data: { deleted: true } })
+})
+
 export default router
