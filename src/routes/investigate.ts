@@ -6,7 +6,7 @@ const router = Router()
 
 router.post('/investigate/single', async (req, res) => {
   console.log(`[INVESTIGATE] POST /investigate/single called at ${Date.now()} from ${req.ip} body=${JSON.stringify(req.body)}`)
-  const { repo_name, repo_url, model, chunk_size } = req.body
+  const { repo_name, repo_url, model, chunk_size, force } = req.body
   if (!repo_name) { res.status(400).json({ error: 'repo_name is required' }); return }
 
   let url = repo_url
@@ -29,7 +29,8 @@ router.post('/investigate/single', async (req, res) => {
       repo_name,
       repo_url: url || '',
       model: model || 'us.anthropic.claude-sonnet-4-6',
-      chunk_size: chunk_size || 10
+      chunk_size: chunk_size || 10,
+      force: Boolean(force),
     }])
     res.status(202).json({ data: { workflowId, status: 'started' } })
   } catch (err: any) {
