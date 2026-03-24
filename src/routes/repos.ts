@@ -42,8 +42,17 @@ router.delete('/repos/:name', async (req, res) => {
 })
 
 router.post('/repos/discover', async (req, res) => {
-  const source = ((req.body?.source as string) || 'codecommit').toLowerCase()
+  let source = (req.body?.source as string | undefined)?.toLowerCase()
   const org = req.body?.org as string | undefined
+
+  // Auto-detect provider from available credentials when source not specified
+  if (!source) {
+    if (process.env.GITHUB_TOKEN) source = 'github'
+    else if (process.env.GITLAB_TOKEN) source = 'gitlab'
+    else if (process.env.AZURE_DEVOPS_PAT) source = 'azure'
+    else if (process.env.BITBUCKET_APP_PASSWORD) source = 'bitbucket'
+    else source = 'codecommit'
+  }
 
   let discovered: { name: string; url: string; source: string }[]
 
